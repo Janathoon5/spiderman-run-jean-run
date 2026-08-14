@@ -1,0 +1,9 @@
+# Roblox / Rojo
+*.rbxl
+*.rbxlx
+*.rbxlx.lock
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
