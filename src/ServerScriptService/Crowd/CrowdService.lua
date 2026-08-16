@@ -8,8 +8,9 @@
 	waypoint loops cost almost nothing, whereas 35 NPCs each running
 	PathfindingService would flatten the server.
 
-	Hooks into RoundService state rather than polling, so the crowd appears at
-	Starting and is cleaned up at Ending.
+	Civilians can be handed over to a player (that is what possession is) via
+	takeControl/releaseControl. A controlled civilian stops being driven here
+	so the AI does not fight the player's own input.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,12 +23,19 @@ local CrowdService = {}
 
 export type Route = { Vector3 }
 
-type ActiveCivilian = {
+export type ActiveCivilian = {
 	model: Model,
 	humanoid: Humanoid,
 	route: Route,
 	waypointIndex: number,
 	appearance: Civilian.Appearance,
+
+	-- True while a player is puppeting this body. The drive loop idles.
+	playerControlled: boolean,
+
+	-- A chip is stuck on this civilian. Marked bodies are not valid jump
+	-- targets, which is what makes spent chips deny the Runner space.
+	marked: boolean,
 }
 
 local crowd: { ActiveCivilian } = {}
@@ -46,9 +54,8 @@ end
 	Where civilians walk.
 
 	If the map defines routes (a Workspace.CivilianRoutes folder, each child a
-	folder of numbered parts) those win. Otherwise we generate loops on the
-	baseplate so the crowd is testable before any map exists — which is where
-	the project is right now.
+	folder of numbered parts) those win. Otherwise we generate loops so the
+	crowd is testable before any map exists.
 ]]
 local function buildRoutes(count: number): { Route }
 	local routes: { Route } = {}
@@ -79,8 +86,6 @@ local function buildRoutes(count: number): { Route }
 		end
 	end
 
-	-- Fallback: scatter loops across a flat area. Each civilian gets its own
-	-- small circuit so the crowd spreads out instead of conga-lining.
 	log("no authored routes found, generating %d procedural loops", count)
 
 	local areaRadius = 140
@@ -116,12 +121,18 @@ end
 --[[
 	Walks one civilian around its loop forever.
 
-	Runs as its own task per civilian. That is fine at this scale — they spend
-	nearly all their time yielded on MoveToFinished or a pause, not burning
-	CPU. Revisit if the crowd ever grows past a few hundred.
+	Runs as its own task per civilian. Fine at this scale — they spend nearly
+	all their time yielded on MoveToFinished or a pause, not burning CPU.
 ]]
 local function driveCivilian(entry: ActiveCivilian)
 	while running and entry.model.Parent do
+		-- Idle while a player is puppeting this body, then resume the route
+		-- from wherever they left it.
+		if entry.playerControlled then
+			task.wait(0.5)
+			continue
+		end
+
 		local target = entry.route[entry.waypointIndex]
 		entry.humanoid:MoveTo(target)
 
@@ -133,6 +144,10 @@ local function driveCivilian(entry: ActiveCivilian)
 
 		if not (running and entry.model.Parent) then
 			break
+		end
+
+		if entry.playerControlled then
+			continue
 		end
 
 		-- The pause is part of the readable pattern: civilians stop at fixed
@@ -156,6 +171,93 @@ function CrowdService.getCount(): number
 	return #crowd
 end
 
+function CrowdService.findByModel(model: Instance?): ActiveCivilian?
+	if not model then
+		return nil
+	end
+	for _, entry in crowd do
+		if entry.model == model then
+			return entry
+		end
+	end
+	return nil
+end
+
+--[[
+	Nearest civilian to a point, skipping any the caller rejects.
+
+	Used by possession (nearest valid jump target) and by the chip (what am I
+	standing in front of).
+]]
+function CrowdService.findNearest(
+	position: Vector3,
+	maxDistance: number,
+	filter: ((ActiveCivilian) -> boolean)?
+): (ActiveCivilian?, number)
+	local best: ActiveCivilian? = nil
+	local bestDistance = maxDistance
+
+	for _, entry in crowd do
+		if filter and not filter(entry) then
+			continue
+		end
+
+		local root = entry.model.PrimaryPart
+		if not root then
+			continue
+		end
+
+		local distance = (root.Position - position).Magnitude
+		if distance <= bestDistance then
+			best = entry
+			bestDistance = distance
+		end
+	end
+
+	return best, bestDistance
+end
+
+--[[
+	Hands a civilian over to player control. The drive loop idles until
+	released, so the AI does not fight the player's input.
+]]
+function CrowdService.takeControl(entry: ActiveCivilian)
+	entry.playerControlled = true
+end
+
+--[[
+	Returns a civilian to AI control. It resumes its route from wherever it
+	now stands — reassigned to the nearest route so a vacated body does not
+	walk conspicuously across the map back to its old loop.
+]]
+function CrowdService.releaseControl(entry: ActiveCivilian, routes: { Route }?)
+	entry.playerControlled = false
+
+	local root = entry.model.PrimaryPart
+	if not root or not routes or #routes == 0 then
+		return
+	end
+
+	local bestRoute = routes[1]
+	local bestDistance = math.huge
+	for _, route in routes do
+		local distance = (route[1] - root.Position).Magnitude
+		if distance < bestDistance then
+			bestDistance = distance
+			bestRoute = route
+		end
+	end
+
+	entry.route = bestRoute
+	entry.waypointIndex = 1
+end
+
+local activeRoutes: { Route } = {}
+
+function CrowdService.getRoutes(): { Route }
+	return activeRoutes
+end
+
 --[[
 	Spawns the crowd. Safe to call when one already exists — it clears first.
 ]]
@@ -169,6 +271,7 @@ function CrowdService.spawn()
 
 	local count = Config.NPC.Count
 	local routes = buildRoutes(count)
+	activeRoutes = routes
 	running = true
 
 	for i = 1, count do
@@ -194,6 +297,8 @@ function CrowdService.spawn()
 			-- which would look obviously mechanical.
 			waypointIndex = math.random(1, #route),
 			appearance = appearance,
+			playerControlled = false,
+			marked = false,
 		}
 
 		table.insert(crowd, entry)
@@ -206,26 +311,12 @@ end
 function CrowdService.despawn()
 	running = false
 	table.clear(crowd)
+	table.clear(activeRoutes)
 
 	if crowdFolder then
 		crowdFolder:Destroy()
 		crowdFolder = nil
 	end
-end
-
---[[
-	Wires the crowd to the round lifecycle. Call once at startup.
-]]
-function CrowdService.bindTo(roundService: {
-	onStateChanged: ((string, string) -> ()) -> () -> (),
-})
-	roundService.onStateChanged(function(newState: string)
-		if newState == "Starting" then
-			CrowdService.spawn()
-		elseif newState == "Ending" or newState == "Lobby" then
-			CrowdService.despawn()
-		end
-	end)
 end
 
 return CrowdService

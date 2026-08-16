@@ -5,29 +5,30 @@
 
 		Lobby -> Starting -> Active -> Ending -> Lobby
 
-	Nothing here touches gameplay yet — no NPCs, no chips, no objectives. That
-	is deliberate: get the loop cycling reliably first, then hang mechanics off
-	its state changes. A broken round loop is much harder to debug once there
-	are thirty NPCs walking around on top of it.
+	Deliberately knows nothing about civilians, chips, or objectives. Gameplay
+	systems subscribe via onStateChanged and report back through
+	reportOutcome, so this file never has to grow a dependency on them.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local Remotes = require(ReplicatedStorage:WaitForChild("Remotes"))
 local RoleAssignment = require(script.Parent:WaitForChild("RoleAssignment"))
 
 local RoundService = {}
 
 export type RoundState = "Lobby" | "Starting" | "Active" | "Ending"
 
--- Why the round ended. Note that Timeout is a HUNTER win — the Runner has to
--- finish her objectives inside the clock, so running it out is her failure.
+-- Timeout is a HUNTER win: the Runner has to finish her objectives inside the
+-- clock, so running it out is her failure, not a stalemate.
 export type RoundOutcome = "RunnerEscaped" | "RunnerChipped" | "Timeout" | "Aborted"
 
 local state: RoundState = "Lobby"
 local timeRemaining = 0
 local currentAssignment: RoleAssignment.Assignment? = nil
+local pendingOutcome: RoundOutcome? = nil
 local started = false
 
 type StateListener = (newState: RoundState, oldState: RoundState) -> ()
@@ -47,6 +48,8 @@ local function setState(newState: RoundState)
 
 	state = newState
 	log("%s -> %s", oldState, newState)
+
+	Remotes.event("RoundStateChanged"):FireAllClients(newState, timeRemaining)
 
 	for _, listener in stateListeners do
 		-- One misbehaving listener must not stall the round loop.
@@ -93,10 +96,23 @@ function RoundService.getAssignment(): RoleAssignment.Assignment?
 end
 
 --[[
-	Subscribe to state transitions. Returns a disconnect function.
+	How a gameplay system ends the round early — the chip landing, or the
+	Runner finishing her objectives. Ignored outside an active round so a late
+	callback cannot cut the next one short.
+]]
+function RoundService.reportOutcome(outcome: RoundOutcome)
+	if state ~= "Active" then
+		return
+	end
+	if pendingOutcome then
+		return
+	end
+	pendingOutcome = outcome
+	log("outcome reported: %s", outcome)
+end
 
-	This is how gameplay systems will hook in: the NPC spawner listens for
-	Starting, the chip system arms on Active, and so on.
+--[[
+	Subscribe to state transitions. Returns a disconnect function.
 ]]
 function RoundService.onStateChanged(listener: StateListener): () -> ()
 	table.insert(stateListeners, listener)
@@ -121,8 +137,7 @@ local function waitForEnoughPlayers()
 end
 
 --[[
-	Returns false if the lobby emptied out during the countdown, so the caller
-	can bail back to Lobby instead of starting a round with nobody in it.
+	Returns false if the lobby emptied out during the countdown.
 ]]
 local function runStartCountdown(): boolean
 	setState("Starting")
@@ -143,13 +158,29 @@ local function runStartCountdown(): boolean
 	return true
 end
 
+local function announceRoles(assignment: RoleAssignment.Assignment)
+	Remotes.event("RoleAssigned"):FireClient(assignment.runner, "Runner")
+
+	if assignment.tracker then
+		Remotes.event("RoleAssigned"):FireClient(assignment.tracker, "Tracker")
+	end
+
+	for _, agent in assignment.agents do
+		Remotes.event("RoleAssigned"):FireClient(agent, "Agent")
+	end
+end
+
 local function runActiveRound(): RoundOutcome
+	pendingOutcome = nil
 	setState("Active")
 	timeRemaining = Config.Round.Duration
 
 	while timeRemaining > 0 do
-		-- Everyone leaving mid-round should not leave the server spinning on a
-		-- five minute timer with nobody in it.
+		-- A gameplay system ended it: chip landed, or objectives finished.
+		if pendingOutcome then
+			return pendingOutcome
+		end
+
 		if #getEligiblePlayers() == 0 then
 			return "Aborted"
 		end
@@ -157,20 +188,22 @@ local function runActiveRound(): RoundOutcome
 		task.wait(1)
 		timeRemaining -= 1
 
+		if timeRemaining % 10 == 0 or timeRemaining <= 10 then
+			Remotes.event("RoundStateChanged"):FireAllClients("Active", timeRemaining)
+		end
+
 		if timeRemaining % 60 == 0 and timeRemaining > 0 then
 			log("%d seconds remaining", timeRemaining)
 		end
 	end
 
-	-- No win conditions are wired up yet, so every round currently runs the
-	-- clock out. Chip landing and objective completion will short-circuit this
-	-- once those systems exist.
-	return "Timeout"
+	return pendingOutcome or "Timeout"
 end
 
 local function runEndScreen(outcome: RoundOutcome)
 	setState("Ending")
 	log("round over: %s", outcome)
+	Remotes.event("RoundEnded"):FireAllClients(outcome)
 	task.wait(Config.Round.EndScreenDuration)
 end
 
@@ -197,6 +230,7 @@ function RoundService.start()
 
 				if assignment then
 					currentAssignment = assignment
+					announceRoles(assignment)
 					log(
 						"roles — Runner: %s | Tracker: %s | Agents: %d",
 						assignment.runner.Name,
@@ -213,6 +247,7 @@ function RoundService.start()
 
 			currentAssignment = nil
 			timeRemaining = 0
+			pendingOutcome = nil
 		end
 	end)
 end
