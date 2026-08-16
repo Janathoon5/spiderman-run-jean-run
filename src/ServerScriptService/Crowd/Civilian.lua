@@ -92,6 +92,30 @@ function Civilian.rollAppearance(): Appearance
 end
 
 --[[
+	Repaints an existing rig to look like someone else.
+
+	This is how possession works: rather than swapping which Model the player
+	controls, the Runner keeps one body all round and it changes appearance.
+	Reassigning Player.Character is the fragile path - the engine treats the
+	displaced model as a discarded character and it does not survive.
+]]
+function Civilian.applyAppearance(model: Model, appearance: Appearance)
+	local function paint(partName: string, color: Color3)
+		local part = model:FindFirstChild(partName)
+		if part and part:IsA("BasePart") then
+			part.Color = color
+		end
+	end
+
+	paint("Torso", appearance.shirt)
+	paint("Head", appearance.skin)
+	paint("Left Arm", appearance.skin)
+	paint("Right Arm", appearance.skin)
+	paint("Left Leg", appearance.pants)
+	paint("Right Leg", appearance.pants)
+end
+
+--[[
 	Builds a civilian rig. Not parented — the caller decides where it goes.
 
 	R6 layout, because it is the simplest structure Roblox reliably accepts as

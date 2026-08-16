@@ -17,8 +17,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Remotes"))
-local CrowdService =
-	require(script.Parent.Parent:WaitForChild("Crowd"):WaitForChild("CrowdService"))
+local CrowdFolder = script.Parent.Parent:WaitForChild("Crowd")
+local CrowdService = require(CrowdFolder:WaitForChild("CrowdService"))
+local Civilian = require(CrowdFolder:WaitForChild("Civilian"))
 
 local PossessionService = {}
 
@@ -91,40 +92,23 @@ local function broadcastTell(position: Vector3)
 end
 
 --[[
-	Moves the Runner into a civilian body. Handles releasing the previous one.
+	Takes over one civilian body for the whole round.
+
+	Player.Character is assigned exactly ONCE per round, here. Reassigning it
+	on every jump is what deleted civilians: the engine treats a displaced
+	character model as discarded and it does not survive, so the body she left
+	vanished instead of collapsing.
 ]]
 local function occupy(player: Player, entry: CrowdService.ActiveCivilian)
-	local previous = possessed
-
-	if previous then
-		CrowdService.releaseControl(previous, CrowdService.getRoutes())
-		-- The body she leaves collapses. That IS the re-entry cooldown, and it
-		-- leaves a visible marker where she was standing a second ago.
-		CrowdService.knockOut(previous, Config.Runner.BodyReentryCooldown)
-	end
-
 	CrowdService.takeControl(entry)
 	possessed = entry
 
 	local oldCharacter = player.Character
 	player.Character = entry.model
 
-	--[[
-		Only ever destroy a real spawned avatar.
-
-		On the FIRST possession the old character is her own Roblox avatar,
-		which is disposable - a fresh one is loaded at round end, and leaving
-		it would strand a body standing in the map.
-
-		On every jump after that, the old character is the civilian she just
-		left. That one belongs to the crowd and must survive to collapse,
-		revive, and keep walking its route. Destroying it deleted a civilian
-		per jump and made the vacated body vanish instead of dropping.
-	]]
-	local leftACivilianBehind = oldCharacter ~= nil
-		and CrowdService.findByModel(oldCharacter) ~= nil
-
-	if oldCharacter and oldCharacter ~= entry.model and not leftACivilianBehind then
+	-- Her own spawned avatar is disposable; a fresh one loads at round end.
+	-- This only ever runs on the first possession now.
+	if oldCharacter and oldCharacter ~= entry.model then
 		oldCharacter:Destroy()
 	end
 
@@ -138,6 +122,43 @@ local function occupy(player: Player, entry: CrowdService.ActiveCivilian)
 		player.CameraMode = Enum.CameraMode.Classic
 		player.CameraMaxZoomDistance = Config.Camera.PossessedMaxZoomStuds
 	end
+end
+
+--[[
+	The jump itself: a swap, not a handover.
+
+	She keeps the same Model all round. Jumping into a target exchanges
+	position and appearance with it, so she ends up standing where the target
+	was, wearing its look, while the target ends up where she was, wearing her
+	old look - and collapses there.
+
+	The fiction lands exactly right (the body she was using drops where she
+	left it) and nothing is ever reparented or destroyed, which is what kept
+	breaking.
+]]
+local function swapWith(mine: CrowdService.ActiveCivilian, target: CrowdService.ActiveCivilian)
+	local myRoot = mine.model.PrimaryPart
+	local targetRoot = target.model.PrimaryPart
+	if not myRoot or not targetRoot then
+		return
+	end
+
+	local myCFrame = myRoot.CFrame
+	local targetCFrame = targetRoot.CFrame
+	local myLook = mine.appearance
+	local targetLook = target.appearance
+
+	mine.model:PivotTo(targetCFrame)
+	Civilian.applyAppearance(mine.model, targetLook)
+	mine.appearance = targetLook
+
+	target.model:PivotTo(myCFrame)
+	Civilian.applyAppearance(target.model, myLook)
+	target.appearance = myLook
+
+	-- The body she just left drops where she was standing. That IS the
+	-- re-entry cooldown, made visible.
+	CrowdService.knockOut(target, Config.Runner.BodyReentryCooldown)
 end
 
 --[[
@@ -197,15 +218,15 @@ local function handleJumpRequest(player: Player, targetModel: Instance?): (boole
 	end
 
 	local jumpPosition = fromRoot.Position
-	occupy(player, target)
+	swapWith(current, target)
 	lastJumpAt = now
 
 	broadcastTell(jumpPosition)
 	log(
-		"%s jumped %s -> %s (%.1f studs)",
+		"%s jumped into %s, leaving %s collapsed (%.1f studs)",
 		player.Name,
-		current.model.Name,
 		target.model.Name,
+		current.model.Name,
 		distance
 	)
 
