@@ -21,6 +21,7 @@ local CrowdService = require(Crowd:WaitForChild("CrowdService"))
 local PossessionService = require(Runner:WaitForChild("PossessionService"))
 local ObjectiveService = require(Runner:WaitForChild("ObjectiveService"))
 local ChipService = require(Hunters:WaitForChild("ChipService"))
+local TrackerService = require(Hunters:WaitForChild("TrackerService"))
 
 print(("[Bootstrap] starting on %s"):format(RunService:IsStudio() and "Studio" or "live server"))
 
@@ -28,6 +29,7 @@ print(("[Bootstrap] starting on %s"):format(RunService:IsStudio() and "Studio" o
 PossessionService.start()
 ChipService.start()
 ObjectiveService.start()
+TrackerService.start()
 
 -- Win conditions report back into the round loop.
 ChipService.setRunnerChippedCallback(function()
@@ -64,6 +66,7 @@ RoundService.onStateChanged(function(newState)
 		PossessionService.beginRound(assignment.runner)
 		ChipService.beginRound(hunters)
 		ObjectiveService.beginRound()
+		TrackerService.beginRound(assignment.tracker)
 		return
 	end
 
@@ -71,6 +74,7 @@ RoundService.onStateChanged(function(newState)
 		PossessionService.endRound()
 		ChipService.endRound()
 		ObjectiveService.endRound()
+		TrackerService.endRound()
 		return
 	end
 

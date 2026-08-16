@@ -211,22 +211,31 @@ be bolted on later without rewriting the mechanics.
       enough that a player can notice one broken. *(`Crowd/CrowdService.lua`,
       `Crowd/Civilian.lua` — reads `Workspace.CivilianRoutes` when authored,
       otherwise generates procedural loops.)*
-- [ ] Runner jump: proximity interact (E) on a nearby NPC, server-validated,
+- [x] Runner jump: proximity interact (E) on a nearby NPC, server-validated,
       on cooldown. Real character hidden while possessing. Marked NPCs are
-      not valid jump targets.
-- [ ] Jump tell: the sound/visual cue that leaks the jump to nearby hunters.
+      not valid jump targets. *(`Runner/PossessionService.lua` — she is handed
+      the civilian's Model as her Character, so there is no cosmetic seam.)*
+- [x] Jump tell: the sound/visual cue that leaks the jump to nearby hunters.
       This is the central balance lever — build it in Phase 1, not as polish.
-- [ ] Inhibitor chip: one per hunter, 3s hold-to-attach, breakable by the
+      *(Filtered server-side by distance; carries position, never identity.)*
+- [x] Inhibitor chip: one per hunter, 3s hold-to-attach, breakable by the
       Runner mid-hold. A wrong chip stays stuck to that civilian, marks it,
       and is collectable after a 45s lockout — with a glow + HUD marker so
       the owner can find it while it walks its route.
-- [ ] Tracker: traversal mobility + 2 coarse area pings per round.
-- [ ] Objective sites: 7–8 placed, claim any 3, ~8–10s claim while possessing,
+      *(`Hunters/ChipService.lua`)*
+- [x] Tracker: traversal mobility + 2 coarse area pings per round.
+      *(`Hunters/TrackerService.lua` — the ping is offset within the radius so
+      repeated uses can't triangulate her.)*
+- [x] Objective sites: 7–8 placed, claim any 3, ~8–10s claim while possessing,
       with claim progress visible to hunters at the site.
-- [ ] Win conditions: Runner claims 3, or chip lands, or timer expires.
-- [ ] Minimal UI: role reveal, countdown, cooldown indicators, win screen.
-- [ ] Playtest solo (Studio multi-client), then with friends in an unlisted
-      place.
+      *(`Runner/ObjectiveService.lua`)*
+- [x] Win conditions: Runner claims 3, or chip lands, or timer expires.
+      *(`RoundService.reportOutcome`, wired in `Bootstrap.server.lua`.)*
+- [x] Minimal UI: role reveal, countdown, cooldown indicators, win screen.
+      *(`StarterGui/HUD.client.lua`, `StarterPlayerScripts/`.)*
+- [ ] **Untested.** Everything above passes selene, StyLua, and `rojo build`,
+      but none of it has been run with real players yet. Next step is a
+      Studio multi-client test, then friends in an unlisted place.
 
 **Expect the time sinks to be NPC behavior and character/model swapping on
 possession** — both are fiddlier in Roblox than they look.
