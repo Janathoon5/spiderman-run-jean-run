@@ -140,13 +140,23 @@ Config.Tracker = {
 -- ---------------------------------------------------------------- camera ----
 
 Config.Camera = {
-	-- First person while wearing a civilian body. Raises tension and limits
-	-- what she can see behind her, which is the point — in third person she
-	-- can watch her own back while standing still, and hiding gets much safer.
-	FirstPersonWhilePossessing = true,
+	--[[
+		Tried first person for the Runner; it made the game unreadable.
 
-	-- Hunters stay in third person: they are scanning a crowd, and a narrow
-	-- FOV makes reading thirty-five routes miserable rather than tense.
+		In a disguise game she has to SEE her disguise — which civilian she
+		currently is, and therefore what everyone else sees. First person hides
+		exactly that, so she loses track of which body she is driving and where
+		the rest of the crowd is.
+
+		Third person with a capped zoom keeps the disguise visible while still
+		denying the wide tactical overview that makes standing still safe.
+	]]
+	FirstPersonWhilePossessing = false,
+
+	-- How far she may pull the camera back while possessing. Enough to see
+	-- her own body and immediate neighbours, not enough to survey the block.
+	PossessedMaxZoomStuds = 14,
+
 	FirstPersonForHunters = false,
 }
 
