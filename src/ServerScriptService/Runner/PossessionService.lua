@@ -106,11 +106,25 @@ local function occupy(player: Player, entry: CrowdService.ActiveCivilian)
 	CrowdService.takeControl(entry)
 	possessed = entry
 
-	-- The old real character is disposable — a fresh one is loaded when the
-	-- round ends. Destroying it avoids leaving an orphan standing in the map.
 	local oldCharacter = player.Character
 	player.Character = entry.model
-	if oldCharacter and oldCharacter ~= entry.model then
+
+	--[[
+		Only ever destroy a real spawned avatar.
+
+		On the FIRST possession the old character is her own Roblox avatar,
+		which is disposable - a fresh one is loaded at round end, and leaving
+		it would strand a body standing in the map.
+
+		On every jump after that, the old character is the civilian she just
+		left. That one belongs to the crowd and must survive to collapse,
+		revive, and keep walking its route. Destroying it deleted a civilian
+		per jump and made the vacated body vanish instead of dropping.
+	]]
+	local leftACivilianBehind = oldCharacter ~= nil
+		and CrowdService.findByModel(oldCharacter) ~= nil
+
+	if oldCharacter and oldCharacter ~= entry.model and not leftACivilianBehind then
 		oldCharacter:Destroy()
 	end
 
