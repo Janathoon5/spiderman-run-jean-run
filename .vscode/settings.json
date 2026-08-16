@@ -1,0 +1,25 @@
+{
+  // Luau LSP reads the Rojo project to build a sourcemap, which is what gives
+  // cross-file autocomplete and knows that src/ServerScriptService maps to
+  // game.ServerScriptService. Without it you get single-file completion only.
+  "luau-lsp.sourcemap.enabled": true,
+  "luau-lsp.sourcemap.autogenerate": true,
+  "luau-lsp.sourcemap.rojoProjectFile": "default.project.json",
+  "luau-lsp.sourcemap.includeNonScripts": true,
+
+  "luau-lsp.completion.imports.enabled": true,
+  "luau-lsp.types.roblox": true,
+
+  "[lua]": {
+    "editor.defaultFormatter": "JohnnyMorganz.stylua",
+    "editor.formatOnSave": true
+  },
+  "[luau]": {
+    "editor.defaultFormatter": "JohnnyMorganz.stylua",
+    "editor.formatOnSave": true
+  },
+
+  "files.associations": {
+    "*.lua": "luau"
+  }
+}

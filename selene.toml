@@ -1,0 +1,6 @@
+std = "roblox"
+
+[lints]
+# Rojo projects legitimately use unscoped requires and Roblox globals.
+unscoped_variables = "warn"
+shadowing = "warn"
