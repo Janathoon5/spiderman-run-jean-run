@@ -137,6 +137,19 @@ Config.Tracker = {
 	TraversalSpeedMultiplier = 1.6,
 }
 
+-- ---------------------------------------------------------------- camera ----
+
+Config.Camera = {
+	-- First person while wearing a civilian body. Raises tension and limits
+	-- what she can see behind her, which is the point — in third person she
+	-- can watch her own back while standing still, and hiding gets much safer.
+	FirstPersonWhilePossessing = true,
+
+	-- Hunters stay in third person: they are scanning a crowd, and a narrow
+	-- FOV makes reading thirty-five routes miserable rather than tense.
+	FirstPersonForHunters = false,
+}
+
 -- ------------------------------------------------------------------ misc ----
 
 Config.Debug = {

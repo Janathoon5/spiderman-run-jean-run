@@ -112,6 +112,13 @@ local function occupy(player: Player, entry: CrowdService.ActiveCivilian)
 	end
 
 	entry.humanoid.WalkSpeed = 16
+
+	-- Lock the camera in rather than only zooming it: LockFirstPerson also
+	-- stops the player scrolling back out to third person, which would hand
+	-- back the over-the-shoulder awareness this is meant to take away.
+	if Config.Camera.FirstPersonWhilePossessing then
+		player.CameraMode = Enum.CameraMode.LockFirstPerson
+	end
 end
 
 --[[
@@ -243,6 +250,10 @@ function PossessionService.endRound()
 	end
 
 	if player and player.Parent then
+		-- Hand the camera back, or she stays locked in first person through
+		-- the lobby and every round after.
+		player.CameraMode = Enum.CameraMode.Classic
+
 		-- Detach first so LoadCharacter does not destroy the civilian body,
 		-- which still belongs to the crowd.
 		player.Character = nil

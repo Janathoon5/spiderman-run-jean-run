@@ -13,6 +13,12 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+-- Must NOT be "Remotes": this ModuleScript is itself ReplicatedStorage.Remotes,
+-- so a folder by the same name collides with it — FindFirstChild returns this
+-- script, the server silently skips building the folder, and every client
+-- lookup then fails with "no RemoteEvent named ...".
+local FOLDER_NAME = "RemoteEvents"
+
 local EVENT_NAMES = {
 	-- Client -> server. Untrusted: the server re-checks range, cooldown, role,
 	-- and target validity on every one of these.
@@ -42,13 +48,20 @@ local FUNCTION_NAMES = {
 local Remotes = {}
 
 local function buildOnServer(): Folder
-	local existing = ReplicatedStorage:FindFirstChild("Remotes")
+	local existing = ReplicatedStorage:FindFirstChild(FOLDER_NAME)
 	if existing then
-		return existing :: Folder
+		-- Guard rather than blind-cast: if something that is not a Folder ever
+		-- occupies this name again, fail here with a clear message instead of
+		-- handing back a broken object that errors much further away.
+		assert(
+			existing:IsA("Folder"),
+			("[Remotes] %s exists but is not a Folder"):format(FOLDER_NAME)
+		)
+		return existing
 	end
 
 	local folder = Instance.new("Folder")
-	folder.Name = "Remotes"
+	folder.Name = FOLDER_NAME
 
 	for _, name in EVENT_NAMES do
 		local event = Instance.new("RemoteEvent")
@@ -70,7 +83,9 @@ local folder: Folder
 if RunService:IsServer() then
 	folder = buildOnServer()
 else
-	folder = ReplicatedStorage:WaitForChild("Remotes") :: Folder
+	-- No timeout: client scripts routinely start before the server's Bootstrap
+	-- has run, so waiting indefinitely is correct here.
+	folder = ReplicatedStorage:WaitForChild(FOLDER_NAME) :: Folder
 end
 
 --[[

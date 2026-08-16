@@ -220,6 +220,31 @@ Remotes.event("SenseResult").OnClientEvent:Connect(function(region: Vector3?)
 	end)
 end)
 
+--[[
+	Repoint the camera when we are moved into a new body.
+
+	Setting player.Character from the server does fire CharacterAdded, but the
+	camera does not reliably re-target on its own — without this a jump leaves
+	you watching the body you just left.
+]]
+local function followCharacter(character: Model)
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	if not humanoid or not humanoid:IsA("Humanoid") then
+		return
+	end
+
+	local camera = Workspace.CurrentCamera
+	if camera then
+		camera.CameraSubject = humanoid
+		camera.CameraType = Enum.CameraType.Custom
+	end
+end
+
+player.CharacterAdded:Connect(followCharacter)
+if player.Character then
+	followCharacter(player.Character)
+end
+
 -- Clear stale targeting between rounds so a highlight cannot outlive the
 -- crowd it was pointing at.
 RoleState.onChanged(function()
