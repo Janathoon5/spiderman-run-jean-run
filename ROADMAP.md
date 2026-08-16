@@ -233,9 +233,14 @@ be bolted on later without rewriting the mechanics.
       *(`RoundService.reportOutcome`, wired in `Bootstrap.server.lua`.)*
 - [x] Minimal UI: role reveal, countdown, cooldown indicators, win screen.
       *(`StarterGui/HUD.client.lua`, `StarterPlayerScripts/`.)*
-- [ ] **Untested.** Everything above passes selene, StyLua, and `rojo build`,
-      but none of it has been run with real players yet. Next step is a
-      Studio multi-client test, then friends in an unlisted place.
+- [x] **Solo-tested in Studio.** Round loop, crowd spawning, possession,
+      body-swap + collapse, objective claiming, and the HUD all confirmed
+      working with one client.
+- [ ] **Multi-client test — the chip has never actually run.** Everything on
+      the hunter side (hold-to-attach, the breakout race, chip marking and
+      retrieval, the Tracker's sense) needs two clients to exercise at all.
+      This is the next real milestone.
+- [ ] Playtest with friends in an unlisted place.
 
 **Expect the time sinks to be NPC behavior and character/model swapping on
 possession** — both are fiddlier in Roblox than they look.
