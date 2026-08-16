@@ -7,9 +7,10 @@
 	diffable text — per the source-of-truth split, anything created by hand in
 	the Studio Explorer would never sync back.
 
-	Layout is banded into fixed, non-overlapping regions down the screen. Every
-	label wraps, and the banner clears its text once faded, so nothing can
-	linger behind a later message.
+	Layout uses a UIListLayout with auto-sized labels rather than hand-placed
+	offsets. Hand-computed positions assume every string fits on one line, and
+	they silently overlap the moment one wraps — which is exactly what went
+	wrong the first two times.
 ]]
 
 local Players = game:GetService("Players")
@@ -30,14 +31,6 @@ local DIM = Color3.fromRGB(155, 165, 180)
 local ALERT = Color3.fromRGB(255, 120, 90)
 local GOOD = Color3.fromRGB(120, 220, 150)
 
--- Fixed vertical bands, as Y scale. Nothing may cross a neighbour's range —
--- overlapping text was the original bug here.
-local BAND_CLOCK = 0.02
-local BAND_STATUS = 0.095
-local BAND_BANNER = 0.36
-local BAND_BANNER_SUB = 0.45
-local BAND_PROMPT = 0.87
-
 -- ----------------------------------------------------------------- build ----
 
 local screen = Instance.new("ScreenGui")
@@ -47,18 +40,43 @@ screen.IgnoreGuiInset = true
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screen.Parent = playerGui
 
+--[[
+	A vertical stack. Children are auto-height, so the layout reflows instead
+	of letting a wrapped line spill into whatever sits below it.
+]]
+local function stack(name: string, anchorY: number, positionY: number): Frame
+	local frame = Instance.new("Frame")
+	frame.Name = name
+	frame.AnchorPoint = Vector2.new(0.5, anchorY)
+	frame.Position = UDim2.fromScale(0.5, positionY)
+	frame.Size = UDim2.fromScale(0.8, 0)
+	frame.AutomaticSize = Enum.AutomaticSize.Y
+	frame.BackgroundTransparency = 1
+	frame.Parent = screen
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Vertical
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = frame
+
+	return frame
+end
+
 local function label(
+	parent: Frame,
 	name: string,
-	heightScale: number,
-	bandY: number,
+	order: number,
 	textSize: number,
 	font: Enum.Font
 ): TextLabel
 	local text = Instance.new("TextLabel")
 	text.Name = name
-	text.AnchorPoint = Vector2.new(0.5, 0)
-	text.Size = UDim2.fromScale(0.8, heightScale)
-	text.Position = UDim2.fromScale(0.5, bandY)
+	text.LayoutOrder = order
+	-- Full width, height driven by content — the bit that prevents overlap.
+	text.Size = UDim2.fromScale(1, 0)
+	text.AutomaticSize = Enum.AutomaticSize.Y
 	text.BackgroundTransparency = 1
 	text.Font = font
 	text.TextSize = textSize
@@ -68,21 +86,23 @@ local function label(
 	text.TextStrokeTransparency = 0.4
 	text.TextWrapped = true
 	text.Text = ""
-	text.Parent = screen
+	text.Parent = parent
 	return text
 end
 
-local clock = label("Clock", 0.07, BAND_CLOCK, 36, Enum.Font.GothamBold)
-local status = label("Status", 0.04, BAND_STATUS, 18, Enum.Font.GothamMedium)
+local topStack = stack("Top", 0, 0.03)
+local clock = label(topStack, "Clock", 1, 38, Enum.Font.GothamBold)
+local status = label(topStack, "Status", 2, 18, Enum.Font.GothamMedium)
 status.TextColor3 = DIM
 
-local bannerTitle = label("BannerTitle", 0.08, BAND_BANNER, 46, Enum.Font.GothamBold)
-local bannerSub = label("BannerSub", 0.05, BAND_BANNER_SUB, 22, Enum.Font.GothamMedium)
-
-local prompt = label("Prompt", 0.05, BAND_PROMPT, 20, Enum.Font.GothamMedium)
-
+local centerStack = stack("Center", 0.5, 0.42)
+local bannerTitle = label(centerStack, "BannerTitle", 1, 46, Enum.Font.GothamBold)
+local bannerSub = label(centerStack, "BannerSub", 2, 22, Enum.Font.GothamMedium)
 bannerTitle.TextTransparency = 1
 bannerSub.TextTransparency = 1
+
+local bottomStack = stack("Bottom", 1, 0.93)
+local prompt = label(bottomStack, "Prompt", 1, 20, Enum.Font.GothamMedium)
 
 -- ---------------------------------------------------------------- helpers ----
 
@@ -111,7 +131,7 @@ local function showBanner(title: string, subtitle: string, color: Color3, holdFo
 		TweenService:Create(bannerTitle, fade, { TextTransparency = 1 }):Play()
 		TweenService:Create(bannerSub, fade, { TextTransparency = 1 }):Play()
 
-		-- Clear the text too. Leaving it set is what let old messages show
+		-- Clear the text too. Leaving it set is what let old messages ghost
 		-- through behind later ones.
 		task.delay(0.55, function()
 			if token == bannerToken then
@@ -123,7 +143,7 @@ local function showBanner(title: string, subtitle: string, color: Color3, holdFo
 end
 
 local function formatClock(seconds: number): string
-	local whole = math.max(0, math.floor(seconds))
+	local whole = math.max(0, math.floor(seconds + 0.5))
 	return ("%d:%02d"):format(whole // 60, whole % 60)
 end
 
@@ -150,22 +170,46 @@ local function refreshPrompt()
 	end
 end
 
-local function refreshStatus(claimed: number?, required: number?)
+local lastClaimed, lastRequired = 0, Config.Objective.RequiredToWin
+
+local function refreshStatus()
 	if roundState ~= "Active" then
 		status.Text = ""
 		return
 	end
-
-	local parts = { string.upper(role) }
-	if claimed and required then
-		table.insert(parts, ("sites %d/%d"):format(claimed, required))
-	end
-	status.Text = table.concat(parts, "   ·   ")
+	status.Text = ("%s   ·   sites %d/%d"):format(string.upper(role), lastClaimed, lastRequired)
+	status.TextColor3 = if lastClaimed >= lastRequired then GOOD else DIM
 end
 
--- ---------------------------------------------------------------- remotes ----
+-- ----------------------------------------------------------------- clock ----
 
-local lastClaimed, lastRequired = 0, Config.Objective.RequiredToWin
+--[[
+	Ticked locally and re-seeded whenever the server sends an update.
+
+	The server only broadcasts every ten seconds; counting down client-side
+	between syncs gives a clock that moves every second without putting a
+	remote call per player per second on the wire.
+]]
+local deadline = 0
+
+local function updateClock()
+	if roundState ~= "Active" then
+		return
+	end
+
+	local remaining = math.max(0, deadline - os.clock())
+	clock.Text = formatClock(remaining)
+	clock.TextColor3 = if remaining <= 30 then ALERT else INK
+end
+
+task.spawn(function()
+	while true do
+		task.wait(0.25)
+		updateClock()
+	end
+end)
+
+-- ---------------------------------------------------------------- remotes ----
 
 Remotes.event("RoleAssigned").OnClientEvent:Connect(function(assigned: string)
 	role = assigned
@@ -177,7 +221,7 @@ Remotes.event("RoleAssigned").OnClientEvent:Connect(function(assigned: string)
 
 	showBanner("YOU ARE THE " .. string.upper(assigned), subtitle, INK, 4)
 	refreshPrompt()
-	refreshStatus(lastClaimed, lastRequired)
+	refreshStatus()
 end)
 
 Remotes.event("RoundStateChanged").OnClientEvent
@@ -185,8 +229,8 @@ Remotes.event("RoundStateChanged").OnClientEvent
 		roundState = state
 
 		if state == "Active" then
-			clock.Text = formatClock(timeRemaining)
-			clock.TextColor3 = if timeRemaining <= 30 then ALERT else INK
+			deadline = os.clock() + (timeRemaining or 0)
+			updateClock()
 		elseif state == "Starting" then
 			clock.Text = "get ready"
 			clock.TextColor3 = DIM
@@ -198,12 +242,12 @@ Remotes.event("RoundStateChanged").OnClientEvent
 		end
 
 		refreshPrompt()
-		refreshStatus(lastClaimed, lastRequired)
+		refreshStatus()
 	end)
 
 Remotes.event("ObjectiveProgress").OnClientEvent:Connect(function(claimed: number, required: number)
 	lastClaimed, lastRequired = claimed, required
-	refreshStatus(claimed, required)
+	refreshStatus()
 end)
 
 Remotes.event("ChipProgress").OnClientEvent:Connect(function(kind: string, value: number)

@@ -57,7 +57,22 @@ Config.NPC = {
 -- ---------------------------------------------------------------- runner ----
 
 Config.Runner = {
-	JumpCooldown = 15,
+	--[[
+		The jump is NOT rate-limited as an ability. A long personal cooldown
+		made her stand around waiting rather than playing, so this is only an
+		anti-spam floor.
+
+		What limits her instead is noise: every jump fires the tell, so moving
+		fast is LOUD. The cost of mobility is information rather than a timer,
+		which puts the balance on the tell radius where it belongs.
+	]]
+	JumpCooldown = 0.75,
+
+	-- Per-body instead. A body she just vacated cannot be re-entered for this
+	-- long, which stops her ping-ponging between two adjacent civilians to
+	-- shake a pursuer without ever really moving.
+	BodyReentryCooldown = 20,
+
 	JumpRangeStuds = 20,
 
 	-- How far away the jump is seen or heard. THE core balance lever: too
@@ -67,6 +82,11 @@ Config.Runner = {
 	-- Time to break out of a chip hold. Must be under Config.Chip.HoldDuration
 	-- or escaping is impossible.
 	BreakoutWindow = 3,
+
+	-- After breaking out she cannot jump for this long. Escaping has to cost
+	-- something, or it is a free reset — she survives, but is pinned in the
+	-- body everyone just watched do something no civilian can do.
+	BreakoutJumpLockout = 5,
 }
 
 -- ------------------------------------------------------------ objectives ----

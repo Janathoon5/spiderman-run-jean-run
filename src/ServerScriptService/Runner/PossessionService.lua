@@ -27,6 +27,10 @@ local possessed: CrowdService.ActiveCivilian? = nil
 local lastJumpAt = 0
 local breakoutRequested = false
 
+-- When each body was last vacated. Keyed by the civilian entry itself; cleared
+-- wholesale at round start since the crowd is rebuilt each round anyway.
+local vacatedAt: { [CrowdService.ActiveCivilian]: number } = {}
+
 local function log(message: string, ...: any)
 	if Config.Debug.VerboseRoundLogging then
 		print(("[Possession] " .. message):format(...))
@@ -98,6 +102,8 @@ local function occupy(player: Player, entry: CrowdService.ActiveCivilian)
 
 	if previous then
 		CrowdService.releaseControl(previous, CrowdService.getRoutes())
+		-- Starts this body's re-entry cooldown.
+		vacatedAt[previous] = os.clock()
 	end
 
 	CrowdService.takeControl(entry)
@@ -140,7 +146,7 @@ local function handleJumpRequest(player: Player, targetModel: Instance?): (boole
 
 	local now = os.clock()
 	if now - lastJumpAt < Config.Runner.JumpCooldown then
-		return false, "on cooldown"
+		return false, "too fast"
 	end
 
 	local target = CrowdService.findByModel(targetModel)
@@ -150,6 +156,13 @@ local function handleJumpRequest(player: Player, targetModel: Instance?): (boole
 
 	if target == current then
 		return false, "already in that body"
+	end
+
+	-- Per-body cooldown, so she cannot bounce straight back into the body she
+	-- just left and shake a pursuer without actually going anywhere.
+	local left = vacatedAt[target]
+	if left and now - left < Config.Runner.BodyReentryCooldown then
+		return false, "that body is still warm"
 	end
 
 	if target.playerControlled then
@@ -194,16 +207,18 @@ end
 --[[
 	The Runner escaping a chip hold. The chip system asks whether she tried.
 
-	Breaking out costs her the jump cooldown: escaping is meant to be a real
-	choice, not a free reset. She survives, but is pinned in place and
-	everyone nearby just watched a civilian do something no civilian does.
+	Escaping locks out her jump for a few seconds — it has to cost something
+	or it is a free reset. She survives, but is stuck in the body everyone
+	just watched do something no civilian can do.
 ]]
 function PossessionService.consumeBreakout(): boolean
 	local requested = breakoutRequested
 	breakoutRequested = false
 
 	if requested then
-		lastJumpAt = os.clock()
+		-- Pushed into the future rather than set to now, since the ordinary
+		-- jump gate is only a fraction of a second these days.
+		lastJumpAt = os.clock() + Config.Runner.BreakoutJumpLockout - Config.Runner.JumpCooldown
 	end
 
 	return requested
@@ -222,6 +237,7 @@ function PossessionService.beginRound(newRunner: Player)
 	runner = newRunner
 	lastJumpAt = 0
 	breakoutRequested = false
+	table.clear(vacatedAt)
 
 	local candidates = {}
 	for _, entry in CrowdService.getCrowd() do
