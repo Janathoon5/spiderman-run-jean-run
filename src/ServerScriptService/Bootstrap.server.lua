@@ -1,8 +1,16 @@
--- Phase 0 pipeline check.
--- If this prints in the Studio Output window on play-test, the chain works:
---   VSCode -> file on disk -> rojo serve -> Studio plugin -> DataModel.
+--!strict
+--[[
+	Server entry point. Requires and starts the game's services in order.
+
+	Keep this thin — it should read as a table of contents for the server, not
+	contain logic of its own.
+]]
 
 local RunService = game:GetService("RunService")
 
-print("[Bootstrap] Rojo pipeline OK - synced from src/ServerScriptService")
-print(("[Bootstrap] Running on %s"):format(RunService:IsStudio() and "Studio" or "live server"))
+local Round = script.Parent:WaitForChild("Round")
+local RoundService = require(Round:WaitForChild("RoundService"))
+
+print(("[Bootstrap] starting on %s"):format(RunService:IsStudio() and "Studio" or "live server"))
+
+RoundService.start()
