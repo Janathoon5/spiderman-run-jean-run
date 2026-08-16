@@ -243,18 +243,52 @@ function CrowdService.knockOut(entry: ActiveCivilian, duration: number)
 		return
 	end
 
+	local root = entry.model.PrimaryPart
+	if not root then
+		return
+	end
+
 	entry.passedOut = true
-	-- PlatformStand drops them without needing the ragdoll states, which are
-	-- deliberately disabled on civilians for performance.
+
+	-- PlatformStand alone does NOT drop this rig: Motor6D joints hold it
+	-- rigid, and civilians have FallingDown and Ragdoll disabled for
+	-- performance, so there is no physics path to it falling over. Lay the
+	-- body down explicitly instead: deterministic, and it reads instantly.
 	entry.humanoid.PlatformStand = true
 
+	-- Find the floor rather than assuming a height, so this still works once
+	-- there is a real map with steps and slopes.
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { entry.model }
+
+	local hit = Workspace:Raycast(root.Position, Vector3.new(0, -20, 0), params)
+	local groundY = if hit then hit.Position.Y else root.Position.Y - 3
+
+	-- Keep its facing so it looks like it dropped where it stood, then tip it
+	-- onto its back and sit it just clear of the floor.
+	local _, facingY = root.CFrame:ToEulerAnglesYXZ()
+	local lying = CFrame.new(root.Position.X, groundY + 1.5, root.Position.Z)
+		* CFrame.Angles(0, facingY, 0)
+		* CFrame.Angles(math.rad(-90), 0, 0)
+
+	entry.model:PivotTo(lying)
+	root.Anchored = true
+	log("%s collapsed for %ds", entry.model.Name, duration)
+
 	task.delay(duration, function()
-		if not entry.model.Parent then
+		if not entry.model.Parent or not root.Parent then
 			return
 		end
 
-		entry.passedOut = false
+		-- Stand back up on the spot, lifted enough that it does not wake up
+		-- inside the floor.
+		root.Anchored = false
+		entry.model:PivotTo(
+			CFrame.new(root.Position.X, groundY + 3, root.Position.Z) * CFrame.Angles(0, facingY, 0)
+		)
 		entry.humanoid.PlatformStand = false
+		entry.passedOut = false
 
 		-- Rejoin the nearest loop rather than walking back across the map to
 		-- wherever the old route started. Called through the table so it
