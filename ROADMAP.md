@@ -199,15 +199,18 @@ never asserts "I possessed NPC #7" or "I chipped NPC #12" — the server
 validates range, cooldown, and target validity on every action. This can't
 be bolted on later without rewriting the mechanics.
 
-- [ ] Config module holding every number from the spec above.
-- [ ] Round state machine (server-authoritative): lobby → assign roles →
-      timer → win/lose → reset.
-- [ ] Role assignment with rotation weighting so the same player doesn't get
-      Agent eight rounds running.
-- [ ] NPC crowd: ~35 dummies on fixed waypoint routes with set pause points.
+- [x] Config module holding every number from the spec above.
+      *(`ReplicatedStorage/Config.lua`)*
+- [x] Round state machine (server-authoritative): lobby → assign roles →
+      timer → win/lose → reset. *(`Round/RoundService.lua`)*
+- [x] Role assignment with rotation weighting so the same player doesn't get
+      Agent eight rounds running. *(`Round/RoleAssignment.lua`)*
+- [x] NPC crowd: ~35 dummies on fixed waypoint routes with set pause points.
       **Visually distinct from each other** — identical NPCs make deduction
       impossible and reduce hunters to coin-flipping. Routes must be readable
-      enough that a player can notice one broken.
+      enough that a player can notice one broken. *(`Crowd/CrowdService.lua`,
+      `Crowd/Civilian.lua` — reads `Workspace.CivilianRoutes` when authored,
+      otherwise generates procedural loops.)*
 - [ ] Runner jump: proximity interact (E) on a nearby NPC, server-validated,
       on cooldown. Real character hidden while possessing. Marked NPCs are
       not valid jump targets.
