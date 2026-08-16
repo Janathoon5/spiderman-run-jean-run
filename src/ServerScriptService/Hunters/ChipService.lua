@@ -249,6 +249,13 @@ function ChipService.start()
 			return
 		end
 
+		-- A collapsed body is provably not her — she just left it. Refusing
+		-- here saves a hunter from burning their one chip on a certainty.
+		if entry.passedOut then
+			Remotes.event("ChipProgress"):FireClient(player, "out_cold", 0)
+			return
+		end
+
 		state.holding = true
 		task.spawn(runHold, state, entry)
 	end)

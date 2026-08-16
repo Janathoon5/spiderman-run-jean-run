@@ -36,6 +36,10 @@ export type ActiveCivilian = {
 	-- A chip is stuck on this civilian. Marked bodies are not valid jump
 	-- targets, which is what makes spent chips deny the Runner space.
 	marked: boolean,
+
+	-- Collapsed after the Runner left this body. Doubles as the re-entry
+	-- cooldown and as a visible clue that she was standing right here.
+	passedOut: boolean,
 }
 
 local crowd: { ActiveCivilian } = {}
@@ -126,9 +130,9 @@ end
 ]]
 local function driveCivilian(entry: ActiveCivilian)
 	while running and entry.model.Parent do
-		-- Idle while a player is puppeting this body, then resume the route
-		-- from wherever they left it.
-		if entry.playerControlled then
+		-- Idle while a player is puppeting this body, or while it is collapsed
+		-- after being vacated. Resume the route from wherever it ends up.
+		if entry.playerControlled or entry.passedOut then
 			task.wait(0.5)
 			continue
 		end
@@ -226,6 +230,44 @@ function CrowdService.takeControl(entry: ActiveCivilian)
 end
 
 --[[
+	Collapses a body for a while, then stands it back up.
+
+	This is what the Runner leaves behind when she jumps out. It does three
+	jobs at once: it enforces the re-entry cooldown, it makes that cooldown
+	legible instead of an invisible rule, and it hands hunters a real clue —
+	someone was standing exactly here a moment ago. It does not say where she
+	went, which is the part that keeps it a clue rather than an arrow.
+]]
+function CrowdService.knockOut(entry: ActiveCivilian, duration: number)
+	if entry.passedOut then
+		return
+	end
+
+	entry.passedOut = true
+	-- PlatformStand drops them without needing the ragdoll states, which are
+	-- deliberately disabled on civilians for performance.
+	entry.humanoid.PlatformStand = true
+
+	task.delay(duration, function()
+		if not entry.model.Parent then
+			return
+		end
+
+		entry.passedOut = false
+		entry.humanoid.PlatformStand = false
+
+		-- Rejoin the nearest loop rather than walking back across the map to
+		-- wherever the old route started. Called through the table so it
+		-- resolves at call time — activeRoutes is declared further down.
+		CrowdService.releaseControl(entry, CrowdService.getRoutes())
+	end)
+end
+
+function CrowdService.isAvailable(entry: ActiveCivilian): boolean
+	return not entry.playerControlled and not entry.marked and not entry.passedOut
+end
+
+--[[
 	Returns a civilian to AI control. It resumes its route from wherever it
 	now stands — reassigned to the nearest route so a vacated body does not
 	walk conspicuously across the map back to its old loop.
@@ -299,6 +341,7 @@ function CrowdService.spawn()
 			appearance = appearance,
 			playerControlled = false,
 			marked = false,
+			passedOut = false,
 		}
 
 		table.insert(crowd, entry)

@@ -4,13 +4,15 @@
 	that tell you what your key does right now.
 
 	Built in code rather than authored as instances so it lives in the repo as
-	diffable text — per the source-of-truth split, anything created by hand in
+	diffable text - per the source-of-truth split, anything created by hand in
 	the Studio Explorer would never sync back.
 
 	Layout uses a UIListLayout with auto-sized labels rather than hand-placed
 	offsets. Hand-computed positions assume every string fits on one line, and
-	they silently overlap the moment one wraps — which is exactly what went
-	wrong the first two times.
+	they silently overlap the moment one wraps.
+
+	Text is ASCII only. Fancy punctuation survives poorly through tooling that
+	rewrites the file, and a mojibake HUD is worse than a plain one.
 ]]
 
 local Players = game:GetService("Players")
@@ -74,7 +76,7 @@ local function label(
 	local text = Instance.new("TextLabel")
 	text.Name = name
 	text.LayoutOrder = order
-	-- Full width, height driven by content — the bit that prevents overlap.
+	-- Full width, height driven by content - the bit that prevents overlap.
 	text.Size = UDim2.fromScale(1, 0)
 	text.AutomaticSize = Enum.AutomaticSize.Y
 	text.BackgroundTransparency = 1
@@ -86,6 +88,7 @@ local function label(
 	text.TextStrokeTransparency = 0.4
 	text.TextWrapped = true
 	text.Text = ""
+	text.Visible = false
 	text.Parent = parent
 	return text
 end
@@ -98,13 +101,23 @@ status.TextColor3 = DIM
 local centerStack = stack("Center", 0.5, 0.42)
 local bannerTitle = label(centerStack, "BannerTitle", 1, 46, Enum.Font.GothamBold)
 local bannerSub = label(centerStack, "BannerSub", 2, 22, Enum.Font.GothamMedium)
-bannerTitle.TextTransparency = 1
-bannerSub.TextTransparency = 1
 
 local bottomStack = stack("Bottom", 1, 0.93)
 local prompt = label(bottomStack, "Prompt", 1, 20, Enum.Font.GothamMedium)
 
 -- ---------------------------------------------------------------- helpers ----
+
+--[[
+	Sets text and hides the label when there is nothing to say.
+
+	An empty auto-sized label still occupies a slot and its layout padding, so
+	blank strings leave gaps and stale spacing on screen. Tying Visible to
+	content means the HUD only ever shows what is currently relevant.
+]]
+local function setText(target: TextLabel, text: string)
+	target.Text = text
+	target.Visible = text ~= ""
+end
 
 -- Incremented per banner so a stale fade cannot wipe a newer message, and a
 -- newer message cannot be left on screen by an older timer.
@@ -114,13 +127,13 @@ local function showBanner(title: string, subtitle: string, color: Color3, holdFo
 	bannerToken += 1
 	local token = bannerToken
 
-	bannerTitle.Text = title
+	setText(bannerTitle, title)
 	bannerTitle.TextColor3 = color
 	bannerTitle.TextTransparency = 0
 
-	bannerSub.Text = subtitle
+	setText(bannerSub, subtitle)
 	bannerSub.TextColor3 = color
-	bannerSub.TextTransparency = if subtitle == "" then 1 else 0.15
+	bannerSub.TextTransparency = 0.15
 
 	task.delay(holdFor, function()
 		if token ~= bannerToken then
@@ -131,12 +144,12 @@ local function showBanner(title: string, subtitle: string, color: Color3, holdFo
 		TweenService:Create(bannerTitle, fade, { TextTransparency = 1 }):Play()
 		TweenService:Create(bannerSub, fade, { TextTransparency = 1 }):Play()
 
-		-- Clear the text too. Leaving it set is what let old messages ghost
-		-- through behind later ones.
+		-- Hide outright once faded. Leaving the text set is what let old
+		-- messages ghost through behind later ones.
 		task.delay(0.55, function()
 			if token == bannerToken then
-				bannerTitle.Text = ""
-				bannerSub.Text = ""
+				setText(bannerTitle, "")
+				setText(bannerSub, "")
 			end
 		end)
 	end)
@@ -153,31 +166,31 @@ end
 ]]
 local function refreshPrompt()
 	if roundState ~= "Active" then
-		prompt.Text = ""
+		setText(prompt, "")
 		return
 	end
 
 	prompt.TextColor3 = INK
 
 	if role == "Runner" then
-		prompt.Text = "[E] jump into a nearby civilian"
+		setText(prompt, "[E] jump into a nearby civilian")
 	elseif role == "Tracker" then
-		prompt.Text = "[Hold E] chip   ·   [E] retrieve your chip   ·   [Q] sense"
+		setText(prompt, "[Hold E] chip     [E] retrieve your chip     [Q] sense")
 	elseif role == "Agent" then
-		prompt.Text = "[Hold E] chip a civilian   ·   [E] retrieve your chip"
+		setText(prompt, "[Hold E] chip a civilian     [E] retrieve your chip")
 	else
-		prompt.Text = ""
+		setText(prompt, "")
 	end
 end
 
 local lastClaimed, lastRequired = 0, Config.Objective.RequiredToWin
 
 local function refreshStatus()
-	if roundState ~= "Active" then
-		status.Text = ""
+	if roundState ~= "Active" or role == "None" then
+		setText(status, "")
 		return
 	end
-	status.Text = ("%s   ·   sites %d/%d"):format(string.upper(role), lastClaimed, lastRequired)
+	setText(status, ("%s     sites %d/%d"):format(string.upper(role), lastClaimed, lastRequired))
 	status.TextColor3 = if lastClaimed >= lastRequired then GOOD else DIM
 end
 
@@ -198,7 +211,7 @@ local function updateClock()
 	end
 
 	local remaining = math.max(0, deadline - os.clock())
-	clock.Text = formatClock(remaining)
+	setText(clock, formatClock(remaining))
 	clock.TextColor3 = if remaining <= 30 then ALERT else INK
 end
 
@@ -232,12 +245,12 @@ Remotes.event("RoundStateChanged").OnClientEvent
 			deadline = os.clock() + (timeRemaining or 0)
 			updateClock()
 		elseif state == "Starting" then
-			clock.Text = "get ready"
+			setText(clock, "get ready")
 			clock.TextColor3 = DIM
 		elseif state == "Lobby" then
 			role = "None"
 			lastClaimed = 0
-			clock.Text = "waiting for players"
+			setText(clock, "waiting for players")
 			clock.TextColor3 = DIM
 		end
 
@@ -252,24 +265,27 @@ end)
 
 Remotes.event("ChipProgress").OnClientEvent:Connect(function(kind: string, value: number)
 	if kind == "incoming" then
-		-- The most important message in the game — she has three seconds.
-		showBanner("A CHIP IS GOING ON YOU", "[F] break out — but they will see you", ALERT, 3)
+		-- The most important message in the game - she has three seconds.
+		showBanner("A CHIP IS GOING ON YOU", "[F] break out, but they will see you", ALERT, 3)
 	elseif kind == "holding" then
-		prompt.Text = ("attaching…  %d%%"):format(math.floor((value or 0) * 100))
+		setText(prompt, ("attaching...  %d%%"):format(math.floor((value or 0) * 100)))
 		prompt.TextColor3 = ALERT
 	elseif kind == "cancelled" then
 		refreshPrompt()
 	elseif kind == "no_chip" then
-		prompt.Text = "your chip is still on a civilian — go collect it"
+		setText(prompt, "your chip is still on a civilian - go collect it")
 		prompt.TextColor3 = ALERT
 	elseif kind == "locked" then
-		prompt.Text = ("chip not ready to collect — %ds"):format(math.ceil(value or 0))
+		setText(prompt, ("chip not ready to collect - %ds"):format(math.ceil(value or 0)))
+		prompt.TextColor3 = ALERT
+	elseif kind == "out_cold" then
+		setText(prompt, "that one is out cold - it cannot be her")
 		prompt.TextColor3 = ALERT
 	elseif kind == "retrieved" then
 		showBanner("chip recovered", "", GOOD, 1.5)
 		refreshPrompt()
 	elseif kind == "cap_reached" then
-		prompt.Text = "you have used all your chips this round"
+		setText(prompt, "you have used all your chips this round")
 		prompt.TextColor3 = ALERT
 	end
 end)
@@ -289,7 +305,7 @@ Remotes.event("RoundEnded").OnClientEvent:Connect(function(outcome: string)
 	local text = if outcome == "RunnerEscaped"
 		then "SHE ESCAPED"
 		elseif outcome == "RunnerChipped" then "CONTAINED"
-		elseif outcome == "Timeout" then "TIME — CONTAINMENT HOLDS"
+		elseif outcome == "Timeout" then "TIME - CONTAINMENT HOLDS"
 		else "ROUND ABORTED"
 
 	local won = if role == "Runner"
@@ -297,10 +313,10 @@ Remotes.event("RoundEnded").OnClientEvent:Connect(function(outcome: string)
 		else outcome == "RunnerChipped" or outcome == "Timeout"
 
 	showBanner(text, "", if won then GOOD else ALERT, Config.Round.EndScreenDuration - 1)
-	prompt.Text = ""
-	status.Text = ""
-	clock.Text = ""
+	setText(prompt, "")
+	setText(status, "")
+	setText(clock, "")
 end)
 
-clock.Text = "waiting for players"
+setText(clock, "waiting for players")
 clock.TextColor3 = DIM

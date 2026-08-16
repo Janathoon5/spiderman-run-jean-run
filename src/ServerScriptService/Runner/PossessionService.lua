@@ -27,10 +27,6 @@ local possessed: CrowdService.ActiveCivilian? = nil
 local lastJumpAt = 0
 local breakoutRequested = false
 
--- When each body was last vacated. Keyed by the civilian entry itself; cleared
--- wholesale at round start since the crowd is rebuilt each round anyway.
-local vacatedAt: { [CrowdService.ActiveCivilian]: number } = {}
-
 local function log(message: string, ...: any)
 	if Config.Debug.VerboseRoundLogging then
 		print(("[Possession] " .. message):format(...))
@@ -102,8 +98,9 @@ local function occupy(player: Player, entry: CrowdService.ActiveCivilian)
 
 	if previous then
 		CrowdService.releaseControl(previous, CrowdService.getRoutes())
-		-- Starts this body's re-entry cooldown.
-		vacatedAt[previous] = os.clock()
+		-- The body she leaves collapses. That IS the re-entry cooldown, and it
+		-- leaves a visible marker where she was standing a second ago.
+		CrowdService.knockOut(previous, Config.Runner.BodyReentryCooldown)
 	end
 
 	CrowdService.takeControl(entry)
@@ -158,11 +155,10 @@ local function handleJumpRequest(player: Player, targetModel: Instance?): (boole
 		return false, "already in that body"
 	end
 
-	-- Per-body cooldown, so she cannot bounce straight back into the body she
-	-- just left and shake a pursuer without actually going anywhere.
-	local left = vacatedAt[target]
-	if left and now - left < Config.Runner.BodyReentryCooldown then
-		return false, "that body is still warm"
+	-- A collapsed body is one she recently left. Same rule as the old per-body
+	-- cooldown, now expressed through the thing the player can actually see.
+	if target.passedOut then
+		return false, "that one is out cold"
 	end
 
 	if target.playerControlled then
@@ -237,11 +233,10 @@ function PossessionService.beginRound(newRunner: Player)
 	runner = newRunner
 	lastJumpAt = 0
 	breakoutRequested = false
-	table.clear(vacatedAt)
 
 	local candidates = {}
 	for _, entry in CrowdService.getCrowd() do
-		if not entry.playerControlled and not entry.marked then
+		if CrowdService.isAvailable(entry) then
 			table.insert(candidates, entry)
 		end
 	end
